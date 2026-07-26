@@ -1,0 +1,343 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===================== ЯДРО / МУЛЬТИТЕНАНТНОСТЬ =====================
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users        User[]
+  avitoAccounts AvitoAccount[]
+  pipelines    Pipeline[]
+  deals        Deal[]
+  contacts     Contact[]
+  products     Product[]
+  invoices     Invoice[]
+  tasks        Task[]
+  templates    MessageTemplate[]
+  materials    Material[]
+  chats        Chat[]
+  roles        Role[]
+}
+
+enum RoleName {
+  OWNER
+  ADMIN
+  MANAGER
+  VIEWER
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  name        RoleName
+  // гранулярные права: какие модули доступны роли
+  canManageAvitoAccounts Boolean @default(false)
+  canManageUsers         Boolean @default(false)
+  canManagePipeline      Boolean @default(false)
+  canViewAllChats        Boolean @default(true)
+  canExportContacts      Boolean @default(false)
+  canManageFinance       Boolean @default(false)
+
+  users User[]
+
+  @@unique([workspaceId, name])
+}
+
+model User {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  email       String
+  passwordHash String
+  fullName    String
+  roleId      String?
+  role        Role?    @relation(fields: [roleId], references: [id])
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  assignedDeals Deal[]  @relation("DealManager")
+  assignedChats Chat[] @relation("DealManager")
+  assignedTasks Task[]  @relation("TaskAssignee")
+  createdTasks  Task[]  @relation("TaskCreator")
+  messagesSent  Message[] @relation("MessageAuthorUser")
+
+  @@unique([workspaceId, email])
+}
+
+// ===================== КАНАЛЫ СВЯЗИ (АВИТО + БУДУЩИЕ) =====================
+
+enum ChannelType {
+  AVITO
+  VK
+  INSTAGRAM
+  WHATSAPP
+  MAX
+  TELEGRAM
+}
+
+// Один "канал" = один подключенный внешний аккаунт (например, один аккаунт Авито)
+model AvitoAccount {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id])
+  name          String   // произвольное название для UI, напр. "Авито - Москва"
+  clientId      String
+  clientSecret  String
+  avitoUserId   String?  // числовой user_id из ответа Авито (нужен для API вызовов)
+  accessToken   String?
+  tokenExpiresAt DateTime?
+  webhookRegistered Boolean @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  chats Chat[]
+
+  @@unique([workspaceId, clientId])
+}
+
+// ===================== ЧАТЫ / ЗАЯВКИ =====================
+
+model Chat {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id])
+  channelType    ChannelType @default(AVITO)
+  avitoAccountId String?
+  avitoAccount   AvitoAccount? @relation(fields: [avitoAccountId], references: [id])
+  externalChatId String   // chat_id на стороне Авито
+  clientName     String?
+  clientAvatarUrl String?
+  itemTitle      String?  // название объявления, по которому написал клиент
+  lastMessageAt  DateTime?
+  hasUnread      Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  deal     Deal?
+  contact  Contact? @relation(fields: [contactId], references: [id])
+  contactId String?
+  assignedManagerId String?
+  assignedManager   User? @relation("DealManager", fields: [assignedManagerId], references: [id])
+
+  messages Message[]
+
+  @@unique([avitoAccountId, externalChatId])
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  chatId          String
+  chat            Chat     @relation(fields: [chatId], references: [id])
+  direction       MessageDirection
+  text            String
+  externalMessageId String?
+  isRead          Boolean  @default(false)
+  authorUserId    String?  // если OUT и отправлено менеджером из CRM
+  authorUser      User?    @relation("MessageAuthorUser", fields: [authorUserId], references: [id])
+  createdAt       DateTime @default(now())
+}
+
+model MessageTemplate {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  title       String
+  text        String
+  createdAt   DateTime @default(now())
+}
+
+// ===================== ВОРОНКА / СДЕЛКИ =====================
+
+model Pipeline {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  name        String
+  isDefault   Boolean  @default(false)
+
+  stages PipelineStage[]
+  deals  Deal[]
+}
+
+model PipelineStage {
+  id         String   @id @default(cuid())
+  pipelineId String
+  pipeline   Pipeline @relation(fields: [pipelineId], references: [id])
+  name       String
+  order      Int
+  color      String   @default("#94a3b8")
+
+  deals Deal[]
+
+  @@unique([pipelineId, order])
+}
+
+model Deal {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  workspace    Workspace @relation(fields: [workspaceId], references: [id])
+  title        String
+  pipelineId   String
+  pipeline     Pipeline @relation(fields: [pipelineId], references: [id])
+  stageId      String
+  stage        PipelineStage @relation(fields: [stageId], references: [id])
+  chatId       String?  @unique
+  chat         Chat?    @relation(fields: [chatId], references: [id])
+  contactId    String?
+  contact      Contact? @relation(fields: [contactId], references: [id])
+  managerId    String?
+  manager      User?    @relation("DealManager", fields: [managerId], references: [id])
+  amount       Decimal  @default(0) @db.Decimal(14, 2)
+  status       String   @default("OPEN") // OPEN, WON, LOST
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  items    DealItem[]
+  invoices Invoice[]
+  tasks    Task[]
+}
+
+model DealItem {
+  id        String  @id @default(cuid())
+  dealId    String
+  deal      Deal    @relation(fields: [dealId], references: [id])
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String
+  price     Decimal @db.Decimal(14, 2)
+  quantity  Decimal @default(1) @db.Decimal(14, 3)
+}
+
+// ===================== КОНТАКТЫ / КЛИЕНТСКАЯ БАЗА =====================
+
+model Contact {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  fullName    String
+  phone       String?
+  email       String?
+  company     String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  chats Chat[]
+  deals Deal[]
+}
+
+// ===================== ТОВАРЫ / СЧЕТА =====================
+
+model Product {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  name        String
+  sku         String?
+  price       Decimal  @db.Decimal(14, 2)
+  unit        String   @default("шт")
+  createdAt   DateTime @default(now())
+
+  dealItems DealItem[]
+  invoiceItems InvoiceItem[]
+  materialUsages MaterialUsage[]
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  dealId      String?
+  deal        Deal?    @relation(fields: [dealId], references: [id])
+  number      String
+  status      String   @default("DRAFT") // DRAFT, SENT, PAID, CANCELLED
+  totalAmount Decimal  @default(0) @db.Decimal(14, 2)
+  createdAt   DateTime @default(now())
+
+  items InvoiceItem[]
+}
+
+model InvoiceItem {
+  id        String  @id @default(cuid())
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id])
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
+  name      String
+  price     Decimal @db.Decimal(14, 2)
+  quantity  Decimal @default(1) @db.Decimal(14, 3)
+}
+
+// ===================== ЗАДАЧИ =====================
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+model Task {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  title       String
+  description String?
+  dealId      String?
+  deal        Deal?    @relation(fields: [dealId], references: [id])
+  assigneeId  String?
+  assignee    User?    @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  creatorId   String
+  creator     User     @relation("TaskCreator", fields: [creatorId], references: [id])
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(OPEN)
+  dueAt       DateTime?
+  reminderAt  DateTime?
+  createdAt   DateTime @default(now())
+}
+
+// ===================== ПРОИЗВОДСТВО / СКЛАД (базовый каркас) =====================
+
+model Material {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+  name        String
+  unit        String   @default("шт")
+  stockQty    Decimal  @default(0) @db.Decimal(14, 3)
+  costPrice   Decimal  @default(0) @db.Decimal(14, 2) // себестоимость за единицу
+  deliveryCostPerUnit Decimal @default(0) @db.Decimal(14, 2)
+  createdAt   DateTime @default(now())
+
+  usages MaterialUsage[]
+}
+
+// Расход материала на производство единицы товара (для расчета себестоимости)
+model MaterialUsage {
+  id         String   @id @default(cuid())
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id])
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id])
+  quantity   Decimal  @db.Decimal(14, 3)
+}
