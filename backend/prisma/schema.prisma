@@ -66,9 +66,10 @@ model User {
   createdAt   DateTime @default(now())
 
   assignedDeals Deal[]  @relation("DealManager")
-  assignedTasks Task[]  @relation("TaskAssignee")
-  createdTasks  Task[]  @relation("TaskCreator")
-  messagesSent  Message[] @relation("MessageAuthorUser")
+assignedChats Chat[]  @relation("DealManager")
+assignedTasks Task[]  @relation("TaskAssignee")
+createdTasks  Task[]  @relation("TaskCreator")
+messagesSent  Message[] @relation("MessageAuthorUser")
 
   @@unique([workspaceId, email])
 }
