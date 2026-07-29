@@ -65,11 +65,11 @@ model User {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
 
-  assignedDeals Deal[]  @relation("DealManager")
-assignedChats Chat[]  @relation("DealManager")
-assignedTasks Task[]  @relation("TaskAssignee")
-createdTasks  Task[]  @relation("TaskCreator")
-messagesSent  Message[] @relation("MessageAuthorUser")
+assignedDeals Deal[] @relation("DealManager")
+assignedChats Chat[] @relation("ChatManager")
+assignedTasks Task[] @relation("TaskAssignee")
+createdTasks Task[] @relation("TaskCreator")
+messagesSent Message[] @relation("MessageAuthorUser")
 
   @@unique([workspaceId, email])
 }
@@ -126,7 +126,7 @@ model Chat {
   contact  Contact? @relation(fields: [contactId], references: [id])
   contactId String?
   assignedManagerId String?
-  assignedManager   User? @relation("DealManager", fields: [assignedManagerId], references: [id])
+  assignedManager   User? @relation("ChatManager", fields: [assignedManagerId], references: [id])
 
   messages Message[]
 
