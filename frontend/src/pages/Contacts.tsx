@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 
+const API_BASE = import.meta.env.VITE_API_URL || "/api";
+
 interface Contact {
   id: string;
   fullName: string;
@@ -31,7 +33,7 @@ export default function Contacts() {
 
   function exportCsv() {
     const token = localStorage.getItem("token");
-    fetch("/api/contacts/export/csv", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(`${API_BASE}/contacts/export/csv`, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.blob())
       .then((blob) => {
         const url = URL.createObjectURL(blob);
