@@ -56,6 +56,9 @@ export async function fetchAvitoUserId(account: AvitoAccount): Promise<string> {
 /** Подписать наш backend на вебхуки этого аккаунта (сообщения в реальном времени) */
 export async function registerWebhook(account: AvitoAccount, webhookUrl: string): Promise<void> {
   const token = await getValidAccessToken(account);
+
+  console.log("Регистрируем вебхук:", webhookUrl);
+
   const res = await fetch(`${AVITO_API_BASE}/messenger/v3/webhook`, {
     method: "POST",
     headers: {
@@ -64,16 +67,22 @@ export async function registerWebhook(account: AvitoAccount, webhookUrl: string)
     },
     body: JSON.stringify({ url: webhookUrl }),
   });
+
+  console.log("Статус:", res.status);
+
+  const body = await res.text();
+
+  console.log("Ответ Авито:", body);
+
   if (!res.ok) {
-    const body = await res.text();
     throw new Error(`Не удалось зарегистрировать вебхук (${res.status}): ${body}`);
   }
+
   await prisma.avitoAccount.update({
     where: { id: account.id },
     data: { webhookRegistered: true },
   });
 }
-
 /** Отправить текстовое сообщение в чат Авито */
 export async function sendAvitoMessage(
   account: AvitoAccount,
